@@ -16,6 +16,7 @@ func readRepoNames(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck
 	defer file.Close()
 
 	reader := csv.NewReader(file)
@@ -37,7 +38,9 @@ func queryPolls(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		return "", nil
+	}
 
 	re := regexp.MustCompile(`"pull_count":([0-9]+),`)
 	matches := re.FindSubmatch(body)
@@ -69,6 +72,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to open %s: %s", fileName, err.Error())
 	}
+	//nolint:errcheck
 	defer f.Close()
 
 	w := csv.NewWriter(f)

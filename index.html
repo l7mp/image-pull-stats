@@ -5,204 +5,218 @@
   <meta name="viewport" content="height=device-height, width=device-width, initial-scale=1.0" />
   <meta name="description" content="Image pull statistics of l7mp.io container images." />
   <title>Image pull statistics</title>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
   <script>
     const csv_path = 'https://raw.githubusercontent.com/l7mp/image-pull-stats/refs/heads/main/pull-stats.csv';
-    const config = {responsive: true};
+    const config = {
+      responsive: true,
+      displaylogo: false
+    };
     const colors = {
-	stunnerd: 'rgb(66,133,244)',
-	stunnerGatewayOperator: 'rgb(234,67,53)',
-	stunnerAuthServer: 'rgb(255,188,5)',
-	netDebug: 'rgb(52,168,83)',
-	icetester: 'rgb(168,168,168)',
+      stunnerd: 'rgb(66,133,244)',
+      stunnerGatewayOperator: 'rgb(234,67,53)',
+      stunnerAuthServer: 'rgb(255,188,5)',
+      netDebug: 'rgb(52,168,83)',
+      icetester: 'rgb(168,168,168)',
     }
+
     function getDifferences(values) {
-	return values.slice(1).map((value, index) => value - values[index]);
+      return values.slice(1).map((value, index) => value - values[index]);
     }
 
-    // total
-    Plotly.d3.csv(csv_path, function(data) {
-        var stunnerd = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: getDifferences(data.map(row => row['stunnerd'])),
-            type: 'bar',
-            name: 'l7mp/stunnerd',
-            marker: {
-                color: colors.stunnerd,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerd,
-                width: 2
-            }
-        };
-        var stunnerGatewayOperator = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: getDifferences(data.map(row => row['stunner-gateway-operator'])),
-            type: 'bar',
-            name: 'l7mp/stunner-gateway-operator',
-            marker: {
-                color: colors.stunnerGatewayOperator,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerGatewayOperator,
-                width: 2
-            }
-        };
-        var stunnerAuthServer = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: getDifferences(data.map(row => row['stunner-auth-server'])),
-            type: 'bar',
-            name: 'l7mp/stunner-auth-server',
-            marker: {
-                color: colors.stunnerAuthServer,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerAuthServer,
-                width: 2
-            }
-        };
-        var netDebug = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: getDifferences(data.map(row => row['net-debug'])),
-            type: 'bar',
-            name: 'l7mp/net-debug',
-            marker: {
-                color: colors.netDebug,
-                size: 10
-            },
-            line: {
-                color: colors.netDebug,
-                width: 2
-            }
-        };
-        var iceTester = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: getDifferences(data.map(row => row['icetester'])),
-            type: 'bar',
-            name: 'l7mp/icetester',
-            marker: {
-                color: colors.icetester,
-                size: 10
-            },
-            line: {
-                color: colors.icetester,
-                width: 2
-            }
-        };
-        var layout = {
-            title: 'Image Pulls (Daily)',
-        };
-        Plotly.newPlot('daily',
-            [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
-            layout, config
-        );
-    });
+    fetch(csv_path)
+      .then(response => response.text())
+      .then(csvText => {
+        const csv_data = Papa.parse(csvText.trim(), {
+          header: true
+        });
+        const data = csv_data.data;
 
-    // daily
-    Plotly.d3.csv(csv_path, function(data) {
+        // daily
         var stunnerd = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: data.map(row => row['stunnerd']),
-            type: 'lines+markers',
-            name: 'l7mp/stunnerd',
-            marker: {
-                color: colors.stunnerd,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerd,
-                width: 2
-            }
+          x: data.map(row => row['date'] + "T12:00"),
+          y: getDifferences(data.map(row => row['stunnerd'])),
+          type: 'bar',
+          name: 'l7mp/stunnerd',
+          marker: {
+            color: colors.stunnerd,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerd,
+            width: 2
+          }
         };
         var stunnerGatewayOperator = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: data.map(row => row['stunner-gateway-operator']),
-            type: 'lines+markers',
-            name: 'l7mp/stunner-gateway-operator',
-            marker: {
-                color: colors.stunnerGatewayOperator,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerGatewayOperator,
-                width: 2
-            }
+          x: data.map(row => row['date'] + "T12:00"),
+          y: getDifferences(data.map(row => row['stunner-gateway-operator'])),
+          type: 'bar',
+          name: 'l7mp/stunner-gateway-operator',
+          marker: {
+            color: colors.stunnerGatewayOperator,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerGatewayOperator,
+            width: 2
+          }
         };
         var stunnerAuthServer = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: data.map(row => row['stunner-auth-server']),
-            type: 'lines+markers',
-            name: 'l7mp/stunner-auth-server',
-            marker: {
-                color: colors.stunnerAuthServer,
-                size: 10
-            },
-            line: {
-                color: colors.stunnerAuthServer,
-                width: 2
-            }
+          x: data.map(row => row['date'] + "T12:00"),
+          y: getDifferences(data.map(row => row['stunner-auth-server'])),
+          type: 'bar',
+          name: 'l7mp/stunner-auth-server',
+          marker: {
+            color: colors.stunnerAuthServer,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerAuthServer,
+            width: 2
+          }
         };
         var netDebug = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: data.map(row => row['net-debug']),
-            type: 'lines+markers',
-            name: 'l7mp/net-debug',
-            marker: {
-                color: colors.netDebug,
-                size: 10
-            },
-            line: {
-                color: colors.netDebug,
-                width: 2
-            }
+          x: data.map(row => row['date'] + "T12:00"),
+          y: getDifferences(data.map(row => row['net-debug'])),
+          type: 'bar',
+          name: 'l7mp/net-debug',
+          marker: {
+            color: colors.netDebug,
+            size: 10
+          },
+          line: {
+            color: colors.netDebug,
+            width: 2
+          }
         };
         var iceTester = {
-            x: data.map(row => row['date'] + "T12:00"),
-            y: data.map(row => row['icetester']),
-            type: 'lines+markers',
-            name: 'l7mp/icetester',
-            marker: {
-                color: colors.icetester,
-                size: 10
-            },
-            line: {
-                color: colors.icetester,
-                width: 2
-            }
+          x: data.map(row => row['date'] + "T12:00"),
+          y: getDifferences(data.map(row => row['icetester'])),
+          type: 'bar',
+          name: 'l7mp/icetester',
+          marker: {
+            color: colors.icetester,
+            size: 10
+          },
+          line: {
+            color: colors.icetester,
+            width: 2
+          }
         };
         var layout = {
-            title: 'Image Pulls (Total)',
+          title: 'Image Pulls (Daily)',
         };
-        Plotly.newPlot('total',
-            [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
-            layout, config
+
+        Plotly.newPlot('daily',
+          [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
+          layout, config
         );
-    });
+
+        // total
+        var stunnerd = {
+          x: data.map(row => row['date'] + "T12:00"),
+          y: data.map(row => row['stunnerd']),
+          type: 'lines+markers',
+          name: 'l7mp/stunnerd',
+          marker: {
+            color: colors.stunnerd,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerd,
+            width: 2
+          }
+        };
+        var stunnerGatewayOperator = {
+          x: data.map(row => row['date'] + "T12:00"),
+          y: data.map(row => row['stunner-gateway-operator']),
+          type: 'lines+markers',
+          name: 'l7mp/stunner-gateway-operator',
+          marker: {
+            color: colors.stunnerGatewayOperator,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerGatewayOperator,
+            width: 2
+          }
+        };
+        var stunnerAuthServer = {
+          x: data.map(row => row['date'] + "T12:00"),
+          y: data.map(row => row['stunner-auth-server']),
+          type: 'lines+markers',
+          name: 'l7mp/stunner-auth-server',
+          marker: {
+            color: colors.stunnerAuthServer,
+            size: 10
+          },
+          line: {
+            color: colors.stunnerAuthServer,
+            width: 2
+          }
+        };
+        var netDebug = {
+          x: data.map(row => row['date'] + "T12:00"),
+          y: data.map(row => row['net-debug']),
+          type: 'lines+markers',
+          name: 'l7mp/net-debug',
+          marker: {
+            color: colors.netDebug,
+            size: 10
+          },
+          line: {
+            color: colors.netDebug,
+            width: 2
+          }
+        };
+        var iceTester = {
+          x: data.map(row => row['date'] + "T12:00"),
+          y: data.map(row => row['icetester']),
+          type: 'lines+markers',
+          name: 'l7mp/icetester',
+          marker: {
+            color: colors.icetester,
+            size: 10
+          },
+          line: {
+            color: colors.icetester,
+            width: 2
+          }
+        };
+        var layout = {
+          title: 'Image Pulls (Total)',
+        };
+
+        Plotly.newPlot('total',
+          [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
+          layout, config
+        );
+
+      });
+
 
     function showPlot(evt, element) {
-	// Declare all variables
-	var i, tabcontent, tablinks;
+      // Declare all variables
+      var i, tabcontent, tablinks;
 
-	// Get all elements with class="tabcontent" and hide them
-	tabcontent = document.getElementsByClassName("tabcontent");
-	for (i = 0; i < tabcontent.length; i++) {
-	    tabcontent[i].style.display = "none";
-	}
+      // Get all elements with class="tabcontent" and hide them
+      tabcontent = document.getElementsByClassName("tabcontent");
+      for(i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+      }
 
-	// Get all elements with class="tablinks" and remove the class "active"
-	tablinks = document.getElementsByClassName("tablinks");
-	for (i = 0; i < tablinks.length; i++) {
-	    tablinks[i].className = tablinks[i].className.replace(" active", "");
-	}
+      // Get all elements with class="tablinks" and remove the class "active"
+      tablinks = document.getElementsByClassName("tablinks");
+      for(i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+      }
 
-	// Show the current tab, and add an "active" class to the button that opened the tab
-	document.getElementById(element).style.display = "block";
-	evt.currentTarget.className += " active";
+      // Show the current tab, and add an "active" class to the button that opened the tab
+      document.getElementById(element).style.display = "block";
+      evt.currentTarget.className += " active";
 
-	window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event('resize'));
     }
   </script>
   <style>

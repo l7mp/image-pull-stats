@@ -25,12 +25,10 @@
       return values.slice(1).map((value, index) => value - values[index]);
     }
 
-    fetch(csv_path)
-      .then(response => response.text())
-      .then(csvText => {
-        const csv_data = Papa.parse(csvText.trim(), {
-          header: true
-        });
+    Papa.parse(csv_path, {
+      download: true,
+      header: true,
+      complete: function(csv_data) {
         const data = csv_data.data;
 
         // daily
@@ -194,7 +192,7 @@
           layout, config
         );
 
-      });
+      }});
 
 
     function showPlot(evt, element) {

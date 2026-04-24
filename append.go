@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +22,11 @@ const (
 	maxQueryAttempts = 4
 	baseRetryDelay   = 500 * time.Millisecond
 	maxRetryDelay    = 5 * time.Second
+)
+
+var (
+	jitterRand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	jitterMu   sync.Mutex
 )
 
 type dockerHubRepository struct {
@@ -126,10 +132,19 @@ func queryPullsOnce(repo, url string) (string, bool, time.Duration, error) {
 func backoffDelay(attempt int) time.Duration {
 	delay := baseRetryDelay << (attempt - 1)
 	if delay > maxRetryDelay {
-		return maxRetryDelay
+		delay = maxRetryDelay
 	}
 
-	return delay
+	minDelay := delay / 2
+	if minDelay == 0 {
+		return delay
+	}
+
+	jitterMu.Lock()
+	jitter := time.Duration(jitterRand.Int63n(int64(delay-minDelay) + 1))
+	jitterMu.Unlock()
+
+	return minDelay + jitter
 }
 
 func parseRetryAfter(value string) time.Duration {

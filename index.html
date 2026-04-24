@@ -30,10 +30,11 @@
       header: true,
       complete: function(csv_data) {
         const data = csv_data.data;
+        const dailyX = data.slice(1).map(row => row['date'] + "T12:00");
 
         // daily
         var stunnerd = {
-          x: data.map(row => row['date'] + "T12:00"),
+          x: dailyX,
           y: getDifferences(data.map(row => row['stunnerd'])),
           type: 'bar',
           name: 'l7mp/stunnerd',
@@ -47,7 +48,7 @@
           }
         };
         var stunnerGatewayOperator = {
-          x: data.map(row => row['date'] + "T12:00"),
+          x: dailyX,
           y: getDifferences(data.map(row => row['stunner-gateway-operator'])),
           type: 'bar',
           name: 'l7mp/stunner-gateway-operator',
@@ -61,7 +62,7 @@
           }
         };
         var stunnerAuthServer = {
-          x: data.map(row => row['date'] + "T12:00"),
+          x: dailyX,
           y: getDifferences(data.map(row => row['stunner-auth-server'])),
           type: 'bar',
           name: 'l7mp/stunner-auth-server',
@@ -75,7 +76,7 @@
           }
         };
         var netDebug = {
-          x: data.map(row => row['date'] + "T12:00"),
+          x: dailyX,
           y: getDifferences(data.map(row => row['net-debug'])),
           type: 'bar',
           name: 'l7mp/net-debug',
@@ -89,7 +90,7 @@
           }
         };
         var iceTester = {
-          x: data.map(row => row['date'] + "T12:00"),
+          x: dailyX,
           y: getDifferences(data.map(row => row['icetester'])),
           type: 'bar',
           name: 'l7mp/icetester',

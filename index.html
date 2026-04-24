@@ -19,181 +19,119 @@
       stunnerAuthServer: 'rgb(255,188,5)',
       netDebug: 'rgb(52,168,83)',
       icetester: 'rgb(168,168,168)',
+    };
+
+    const visibleRepos = [
+      { csvKey: 'stunnerd', label: 'l7mp/stunnerd', colorKey: 'stunnerd' },
+      { csvKey: 'stunner-gateway-operator', label: 'l7mp/stunner-gateway-operator', colorKey: 'stunnerGatewayOperator' },
+      { csvKey: 'stunner-auth-server', label: 'l7mp/stunner-auth-server', colorKey: 'stunnerAuthServer' },
+      { csvKey: 'net-debug', label: 'l7mp/net-debug', colorKey: 'netDebug' },
+      { csvKey: 'icetester', label: 'l7mp/icetester', colorKey: 'icetester' },
+    ];
+
+    function showError(message) {
+      const errorElement = document.getElementById('error');
+      errorElement.textContent = message;
+      errorElement.style.display = 'block';
+      document.getElementById('daily').style.display = 'none';
+      document.getElementById('total').style.display = 'none';
+    }
+
+    function parseSeries(rows, key) {
+      return rows.map(row => {
+        const value = Number(row[key]);
+        return Number.isFinite(value) ? value : null;
+      });
     }
 
     function getDifferences(values) {
-      return values.slice(1).map((value, index) => value - values[index]);
+      return values.slice(1).map((value, index) => {
+        const previous = values[index];
+        if (value === null || previous === null) {
+          return null;
+        }
+        return value - previous;
+      });
+    }
+
+    function buildDailyTrace(rows, dailyX, repo) {
+      const series = parseSeries(rows, repo.csvKey);
+      return {
+        x: dailyX,
+        y: getDifferences(series),
+        type: 'bar',
+        name: repo.label,
+        marker: {
+          color: colors[repo.colorKey],
+          size: 10
+        },
+        line: {
+          color: colors[repo.colorKey],
+          width: 2
+        }
+      };
+    }
+
+    function buildTotalTrace(rows, totalX, repo) {
+      return {
+        x: totalX,
+        y: parseSeries(rows, repo.csvKey),
+        type: 'lines+markers',
+        name: repo.label,
+        marker: {
+          color: colors[repo.colorKey],
+          size: 10
+        },
+        line: {
+          color: colors[repo.colorKey],
+          width: 2
+        }
+      };
     }
 
     Papa.parse(csv_path, {
       download: true,
       header: true,
       complete: function(csv_data) {
-        const data = csv_data.data;
-        const dailyX = data.slice(1).map(row => row['date'] + "T12:00");
+        if (csv_data.errors.length > 0) {
+          showError('Unable to parse CSV data.');
+          return;
+        }
 
-        // daily
-        var stunnerd = {
-          x: dailyX,
-          y: getDifferences(data.map(row => row['stunnerd'])),
-          type: 'bar',
-          name: 'l7mp/stunnerd',
-          marker: {
-            color: colors.stunnerd,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerd,
-            width: 2
-          }
-        };
-        var stunnerGatewayOperator = {
-          x: dailyX,
-          y: getDifferences(data.map(row => row['stunner-gateway-operator'])),
-          type: 'bar',
-          name: 'l7mp/stunner-gateway-operator',
-          marker: {
-            color: colors.stunnerGatewayOperator,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerGatewayOperator,
-            width: 2
-          }
-        };
-        var stunnerAuthServer = {
-          x: dailyX,
-          y: getDifferences(data.map(row => row['stunner-auth-server'])),
-          type: 'bar',
-          name: 'l7mp/stunner-auth-server',
-          marker: {
-            color: colors.stunnerAuthServer,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerAuthServer,
-            width: 2
-          }
-        };
-        var netDebug = {
-          x: dailyX,
-          y: getDifferences(data.map(row => row['net-debug'])),
-          type: 'bar',
-          name: 'l7mp/net-debug',
-          marker: {
-            color: colors.netDebug,
-            size: 10
-          },
-          line: {
-            color: colors.netDebug,
-            width: 2
-          }
-        };
-        var iceTester = {
-          x: dailyX,
-          y: getDifferences(data.map(row => row['icetester'])),
-          type: 'bar',
-          name: 'l7mp/icetester',
-          marker: {
-            color: colors.icetester,
-            size: 10
-          },
-          line: {
-            color: colors.icetester,
-            width: 2
-          }
-        };
-        var layout = {
+        const rows = csv_data.data.filter(row => row.date && row.date.trim() !== '');
+        if (rows.length < 2) {
+          showError('Not enough data points to render charts yet.');
+          return;
+        }
+
+        const totalX = rows.map(row => row.date + 'T12:00');
+        const dailyX = totalX.slice(1);
+
+        const dailyTraces = visibleRepos.map(repo => buildDailyTrace(rows, dailyX, repo));
+        const dailyLayout = {
           title: 'Image Pulls (Daily)',
         };
 
         Plotly.newPlot('daily',
-          [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
-          layout, config
+          dailyTraces,
+          dailyLayout, config
         );
 
-        // total
-        var stunnerd = {
-          x: data.map(row => row['date'] + "T12:00"),
-          y: data.map(row => row['stunnerd']),
-          type: 'lines+markers',
-          name: 'l7mp/stunnerd',
-          marker: {
-            color: colors.stunnerd,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerd,
-            width: 2
-          }
-        };
-        var stunnerGatewayOperator = {
-          x: data.map(row => row['date'] + "T12:00"),
-          y: data.map(row => row['stunner-gateway-operator']),
-          type: 'lines+markers',
-          name: 'l7mp/stunner-gateway-operator',
-          marker: {
-            color: colors.stunnerGatewayOperator,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerGatewayOperator,
-            width: 2
-          }
-        };
-        var stunnerAuthServer = {
-          x: data.map(row => row['date'] + "T12:00"),
-          y: data.map(row => row['stunner-auth-server']),
-          type: 'lines+markers',
-          name: 'l7mp/stunner-auth-server',
-          marker: {
-            color: colors.stunnerAuthServer,
-            size: 10
-          },
-          line: {
-            color: colors.stunnerAuthServer,
-            width: 2
-          }
-        };
-        var netDebug = {
-          x: data.map(row => row['date'] + "T12:00"),
-          y: data.map(row => row['net-debug']),
-          type: 'lines+markers',
-          name: 'l7mp/net-debug',
-          marker: {
-            color: colors.netDebug,
-            size: 10
-          },
-          line: {
-            color: colors.netDebug,
-            width: 2
-          }
-        };
-        var iceTester = {
-          x: data.map(row => row['date'] + "T12:00"),
-          y: data.map(row => row['icetester']),
-          type: 'lines+markers',
-          name: 'l7mp/icetester',
-          marker: {
-            color: colors.icetester,
-            size: 10
-          },
-          line: {
-            color: colors.icetester,
-            width: 2
-          }
-        };
-        var layout = {
+        const totalTraces = visibleRepos.map(repo => buildTotalTrace(rows, totalX, repo));
+        const totalLayout = {
           title: 'Image Pulls (Total)',
-	  autosize: true
+          autosize: true
         };
 
         Plotly.newPlot('total',
-          [stunnerd, stunnerGatewayOperator, stunnerAuthServer, netDebug, iceTester],
-          layout, config
+          totalTraces,
+          totalLayout, config
         );
-
-      }});
+      },
+      error: function() {
+        showError('Unable to download CSV data from GitHub.');
+      }
+    });
 
 
     function showPlot(evt, element) {
@@ -250,6 +188,12 @@
 	    -webkit-user-select: none;
 	    touch-action: manipulation;
 	}
+  #error {
+      display: none;
+      margin-top: 12px;
+      color: #a31b1b;
+      font-weight: 600;
+  }
   </style>
 </head>
 <body>
@@ -262,6 +206,7 @@
 
   <div id="daily" class="tabcontent"></div>
   <div id="total" class="tabcontent"></div>
+  <div id="error"></div>
 
   <div>More info: <a href="https://github.com/l7mp/image-pull-stats">github</a></div>
 

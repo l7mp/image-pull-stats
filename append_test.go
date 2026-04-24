@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -77,6 +80,23 @@ func TestQueryPullsOnceNotFound(t *testing.T) {
 	}
 }
 
+func TestQueryPullsOnceRequestTimeoutStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusRequestTimeout)
+		_, _ = w.Write([]byte("timeout"))
+	}))
+	t.Cleanup(srv.Close)
+	useTestHTTPClient(t, srv.Client())
+
+	_, retry, _, err := queryPullsOnce("stunnerd", srv.URL)
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	if !retry {
+		t.Fatalf("expected retry=true for 408")
+	}
+}
+
 func TestParseRetryAfter(t *testing.T) {
 	if got := parseRetryAfter("3"); got != 3*time.Second {
 		t.Fatalf("expected 3s, got %s", got)
@@ -90,6 +110,10 @@ func TestParseRetryAfter(t *testing.T) {
 
 	if got := parseRetryAfter("invalid"); got != 0 {
 		t.Fatalf("expected 0 for invalid Retry-After, got %s", got)
+	}
+
+	if got := parseRetryAfter("999"); got != maxRetryAfter {
+		t.Fatalf("expected capped delay %s, got %s", maxRetryAfter, got)
 	}
 }
 
@@ -107,5 +131,20 @@ func TestBackoffDelayRange(t *testing.T) {
 				t.Fatalf("attempt %d: delay %s out of range [%s, %s]", attempt, delay, minDelay, maxDelay)
 			}
 		}
+	}
+}
+
+func TestIsRetryableRequestError(t *testing.T) {
+	if !isRetryableRequestError(context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded to be retryable")
+	}
+	if isRetryableRequestError(context.Canceled) {
+		t.Fatalf("expected context canceled to be non-retryable")
+	}
+	if !isRetryableRequestError(io.ErrUnexpectedEOF) {
+		t.Fatalf("expected unexpected EOF to be retryable")
+	}
+	if isRetryableRequestError(errors.New("permanent error")) {
+		t.Fatalf("expected generic error to be non-retryable")
 	}
 }

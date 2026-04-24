@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ const (
 	maxQueryAttempts = 4
 	baseRetryDelay   = 500 * time.Millisecond
 	maxRetryDelay    = 5 * time.Second
+	maxRetryAfter    = 30 * time.Second
 )
 
 var (
@@ -85,6 +87,10 @@ func queryPulls(repo string) (string, error) {
 		delay := backoffDelay(attempt)
 		if retryAfter > delay {
 			delay = retryAfter
+		}
+
+		if delay > maxRetryAfter {
+			delay = maxRetryAfter
 		}
 
 		log.Printf("Retrying %s in %s (attempt %d/%d): %s", repo, delay, attempt+1, maxQueryAttempts, err.Error())
@@ -155,7 +161,12 @@ func parseRetryAfter(value string) time.Duration {
 	seconds, err := strconv.Atoi(value)
 	if err == nil {
 		if seconds > 0 {
-			return time.Duration(seconds) * time.Second
+			delay := time.Duration(seconds) * time.Second
+			if delay > maxRetryAfter {
+				return maxRetryAfter
+			}
+
+			return delay
 		}
 
 		return 0
@@ -170,15 +181,25 @@ func parseRetryAfter(value string) time.Duration {
 	if delay < 0 {
 		return 0
 	}
+	if delay > maxRetryAfter {
+		return maxRetryAfter
+	}
 
 	return delay
 }
 
 func isRetryableStatusCode(code int) bool {
-	return code == http.StatusTooManyRequests || code >= http.StatusInternalServerError
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= http.StatusInternalServerError
 }
 
 func isRetryableRequestError(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return netErr.Timeout()

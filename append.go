@@ -1,17 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
+	"strconv"
 	"time"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+type dockerHubRepository struct {
+	PullCount *int `json:"pull_count"`
+}
 
 func readRepoNames(path string) ([]string, error) {
 	file, err := os.Open(path)
@@ -25,6 +30,9 @@ func readRepoNames(path string) ([]string, error) {
 	column, err := reader.Read()
 	if err != nil {
 		return nil, err
+	}
+	if len(column) < 2 {
+		return nil, fmt.Errorf("missing repository columns in %s", path)
 	}
 
 	return column[1:], nil
@@ -54,13 +62,15 @@ func queryPulls(repo string) (string, error) {
 		return "", err
 	}
 
-	re := regexp.MustCompile(`"pull_count":([0-9]+),`)
-	matches := re.FindSubmatch(body)
-	if len(matches) < 2 {
+	var repository dockerHubRepository
+	if err := json.Unmarshal(body, &repository); err != nil {
+		return "", fmt.Errorf("unable to parse response for %s: %w", repo, err)
+	}
+	if repository.PullCount == nil {
 		return "", fmt.Errorf("pull_count not found for %s", repo)
 	}
 
-	return string(matches[1]), nil
+	return strconv.Itoa(*repository.PullCount), nil
 }
 
 func main() {

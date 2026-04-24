@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +19,22 @@ func useTestHTTPClient(t *testing.T, client *http.Client) {
 	httpClient = client
 	t.Cleanup(func() {
 		httpClient = oldClient
+	})
+}
+
+func useTestRetryHooks(
+	t *testing.T,
+	queryFn func(string, string) (string, bool, time.Duration, error),
+	sleeper func(time.Duration),
+) {
+	t.Helper()
+	oldQueryOnceFn := queryOnceFn
+	oldSleepFn := sleepFn
+	queryOnceFn = queryFn
+	sleepFn = sleeper
+	t.Cleanup(func() {
+		queryOnceFn = oldQueryOnceFn
+		sleepFn = oldSleepFn
 	})
 }
 
@@ -177,5 +194,97 @@ func TestHasDateInRecentRows(t *testing.T) {
 	}
 	if found {
 		t.Fatalf("expected old date to be outside recent row window")
+	}
+}
+
+func TestQueryPullsRetriesThenSucceeds(t *testing.T) {
+	attempts := 0
+	sleeps := make([]time.Duration, 0, 2)
+	useTestRetryHooks(
+		t,
+		func(_ string, _ string) (string, bool, time.Duration, error) {
+			attempts++
+			if attempts < 3 {
+				return "", true, maxRetryAfter + time.Second, errors.New("temporary failure")
+			}
+			return "42", false, 0, nil
+		},
+		func(delay time.Duration) {
+			sleeps = append(sleeps, delay)
+		},
+	)
+
+	pulls, err := queryPulls("stunnerd")
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if pulls != "42" {
+		t.Fatalf("expected pulls=42, got %s", pulls)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if len(sleeps) != 2 {
+		t.Fatalf("expected 2 sleeps, got %d", len(sleeps))
+	}
+	for _, delay := range sleeps {
+		if delay != maxRetryAfter {
+			t.Fatalf("expected capped sleep %s, got %s", maxRetryAfter, delay)
+		}
+	}
+}
+
+func TestQueryPullsStopsOnNonRetryableError(t *testing.T) {
+	attempts := 0
+	sleepCalls := 0
+	useTestRetryHooks(
+		t,
+		func(_ string, _ string) (string, bool, time.Duration, error) {
+			attempts++
+			return "", false, 0, errors.New("bad request")
+		},
+		func(time.Duration) {
+			sleepCalls++
+		},
+	)
+
+	_, err := queryPulls("stunnerd")
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected a single attempt, got %d", attempts)
+	}
+	if sleepCalls != 0 {
+		t.Fatalf("expected no retries/sleeps, got %d", sleepCalls)
+	}
+}
+
+func TestQueryPullsExhaustsRetries(t *testing.T) {
+	attempts := 0
+	sleepCalls := 0
+	useTestRetryHooks(
+		t,
+		func(_ string, _ string) (string, bool, time.Duration, error) {
+			attempts++
+			return "", true, 0, errors.New("still failing")
+		},
+		func(time.Duration) {
+			sleepCalls++
+		},
+	)
+
+	_, err := queryPulls("stunnerd")
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	if attempts != maxQueryAttempts {
+		t.Fatalf("expected %d attempts, got %d", maxQueryAttempts, attempts)
+	}
+	if sleepCalls != maxQueryAttempts-1 {
+		t.Fatalf("expected %d sleeps, got %d", maxQueryAttempts-1, sleepCalls)
+	}
+	if !strings.Contains(err.Error(), "unable to query stunnerd after") {
+		t.Fatalf("expected wrapped retry error, got %v", err)
 	}
 }

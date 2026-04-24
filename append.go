@@ -28,8 +28,10 @@ const (
 )
 
 var (
-	jitterRand = rand.New(rand.NewSource(time.Now().UnixNano()))
-	jitterMu   sync.Mutex
+	jitterRand  = rand.New(rand.NewSource(time.Now().UnixNano()))
+	jitterMu    sync.Mutex
+	sleepFn     = time.Sleep
+	queryOnceFn = queryPullsOnce
 )
 
 type dockerHubRepository struct {
@@ -127,7 +129,7 @@ func queryPulls(repo string) (string, error) {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
-		pulls, retry, retryAfter, err := queryPullsOnce(repo, url)
+		pulls, retry, retryAfter, err := queryOnceFn(repo, url)
 		if err == nil {
 			return pulls, nil
 		}
@@ -147,7 +149,7 @@ func queryPulls(repo string) (string, error) {
 		}
 
 		log.Printf("Retrying %s in %s (attempt %d/%d): %s", repo, delay, attempt+1, maxQueryAttempts, err.Error())
-		time.Sleep(delay)
+		sleepFn(delay)
 	}
 
 	return "", fmt.Errorf("unable to query %s after %d attempts: %w", repo, maxQueryAttempts, lastErr)

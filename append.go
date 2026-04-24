@@ -150,6 +150,14 @@ func getDateWriteMode() dateWriteMode {
 }
 
 func appendRow(path string, row []string) error {
+	headerWidth, err := getHeaderWidth(path)
+	if err != nil {
+		return err
+	}
+	if len(row) != headerWidth {
+		return fmt.Errorf("row width mismatch: got %d values, want %d", len(row), headerWidth)
+	}
+
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
@@ -167,6 +175,28 @@ func appendRow(path string, row []string) error {
 	w.Flush()
 
 	return w.Error()
+}
+
+func getHeaderWidth(path string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", path, closeErr.Error())
+		}
+	}()
+
+	headers, err := csv.NewReader(file).Read()
+	if err != nil {
+		return 0, err
+	}
+	if len(headers) == 0 || headers[0] != "date" {
+		return 0, fmt.Errorf("invalid csv header in %s", path)
+	}
+
+	return len(headers), nil
 }
 
 func overwriteDateInRecentRows(path string, row []string, rows int) (bool, error) {

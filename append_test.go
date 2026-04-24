@@ -264,6 +264,43 @@ func TestOverwriteDateInRecentRowsOutsideWindow(t *testing.T) {
 	}
 }
 
+func TestAppendRowWidthGuard(t *testing.T) {
+	content := "date,repoA,repoB\n2026-04-23,1,2\n"
+	path := filepath.Join(t.TempDir(), "pull-stats.csv")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("unable to write test csv: %v", err)
+	}
+
+	err := appendRow(path, []string{"2026-04-24", "3"})
+	if err == nil {
+		t.Fatalf("expected width mismatch error")
+	}
+	if !strings.Contains(err.Error(), "row width mismatch") {
+		t.Fatalf("expected width mismatch error, got: %v", err)
+	}
+}
+
+func TestAppendRowSuccess(t *testing.T) {
+	content := "date,repoA,repoB\n2026-04-23,1,2\n"
+	path := filepath.Join(t.TempDir(), "pull-stats.csv")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("unable to write test csv: %v", err)
+	}
+
+	err := appendRow(path, []string{"2026-04-24", "3", "4"})
+	if err != nil {
+		t.Fatalf("expected append success, got: %v", err)
+	}
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("unable to read updated file: %v", err)
+	}
+	if !strings.Contains(string(updated), "2026-04-24,3,4") {
+		t.Fatalf("expected appended row in file, got: %s", string(updated))
+	}
+}
+
 func TestQueryPullsRetriesThenSucceeds(t *testing.T) {
 	attempts := 0
 	sleeps := make([]time.Duration, 0, 2)

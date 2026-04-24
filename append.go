@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
 func readRepoNames(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -30,22 +32,32 @@ func readRepoNames(path string) ([]string, error) {
 
 func queryPulls(repo string) (string, error) {
 	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/l7mp/%s", repo)
-	res, err := http.Get(url)
+	res, err := httpClient.Get(url)
 	if err != nil {
 		return "", err
 	}
+
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
+		if closeErr := res.Body.Close(); closeErr != nil {
+			return "", closeErr
+		}
+
+		return "", fmt.Errorf("unexpected status %d for %s: %s", res.StatusCode, repo, string(body))
+	}
+
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err
 	}
 	if err := res.Body.Close(); err != nil {
-		return "", nil
+		return "", err
 	}
 
 	re := regexp.MustCompile(`"pull_count":([0-9]+),`)
 	matches := re.FindSubmatch(body)
 	if len(matches) < 2 {
-		return "", nil
+		return "", fmt.Errorf("pull_count not found for %s", repo)
 	}
 
 	return string(matches[1]), nil
@@ -63,7 +75,7 @@ func main() {
 	for _, r := range repos {
 		pulls, err := queryPulls(r)
 		if err != nil {
-			log.Printf("Unable to query %s: %s", r, err.Error())
+			log.Fatalf("Unable to query %s: %s", r, err.Error())
 		}
 		row = append(row, pulls)
 	}

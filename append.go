@@ -28,7 +28,7 @@ func readRepoNames(path string) ([]string, error) {
 	return column[1:], nil
 }
 
-func queryPolls(repo string) (string, error) {
+func queryPulls(repo string) (string, error) {
 	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/l7mp/%s", repo)
 	res, err := http.Get(url)
 	if err != nil {
@@ -61,11 +61,11 @@ func main() {
 
 	row := []string{time.Now().Format("2006-01-02")}
 	for _, r := range repos {
-		polls, err := queryPolls(r)
+		pulls, err := queryPulls(r)
 		if err != nil {
 			log.Printf("Unable to query %s: %s", r, err.Error())
 		}
-		row = append(row, polls)
+		row = append(row, pulls)
 	}
 
 	f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0644)

@@ -20,10 +20,11 @@ import (
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 const (
-	maxQueryAttempts = 4
-	baseRetryDelay   = 500 * time.Millisecond
-	maxRetryDelay    = 5 * time.Second
-	maxRetryAfter    = 30 * time.Second
+	maxQueryAttempts  = 4
+	baseRetryDelay    = 500 * time.Millisecond
+	maxRetryDelay     = 5 * time.Second
+	maxRetryAfter     = 30 * time.Second
+	recentRowsToCheck = 16
 )
 
 var (
@@ -67,6 +68,58 @@ func readRepoNames(path string) ([]string, error) {
 	}
 
 	return column[1:], nil
+}
+
+func hasDateInRecentRows(path, date string, rows int) (bool, error) {
+	if rows <= 0 {
+		return false, nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", path, closeErr.Error())
+		}
+	}()
+
+	reader := csv.NewReader(file)
+	headers, err := reader.Read()
+	if err != nil {
+		return false, err
+	}
+	if len(headers) == 0 || headers[0] != "date" {
+		return false, fmt.Errorf("invalid csv header in %s", path)
+	}
+
+	recent := make([]string, 0, rows)
+	for {
+		record, readErr := reader.Read()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return false, readErr
+		}
+		if len(record) == 0 {
+			continue
+		}
+
+		recent = append(recent, record[0])
+		if len(recent) > rows {
+			recent = recent[1:]
+		}
+	}
+
+	for _, rowDate := range recent {
+		if rowDate == date {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func queryPulls(repo string) (string, error) {
@@ -268,6 +321,16 @@ func queryAllPulls(repos []string) ([]string, error) {
 
 func main() {
 	fileName := "pull-stats.csv"
+	today := time.Now().UTC().Format("2006-01-02")
+
+	exists, err := hasDateInRecentRows(fileName, today, recentRowsToCheck)
+	if err != nil {
+		log.Fatalf("Unable to inspect %s: %s", fileName, err.Error())
+	}
+	if exists {
+		log.Printf("Data point already exists for %s, skipping update", today)
+		return
+	}
 
 	repos, err := readRepoNames(fileName)
 	if err != nil {
@@ -279,7 +342,7 @@ func main() {
 		log.Fatalf("Unable to query repositories: %s", err.Error())
 	}
 
-	row := []string{time.Now().UTC().Format("2006-01-02")}
+	row := []string{today}
 	row = append(row, pulls...)
 
 	f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0644)

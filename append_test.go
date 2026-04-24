@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -146,5 +148,34 @@ func TestIsRetryableRequestError(t *testing.T) {
 	}
 	if isRetryableRequestError(errors.New("permanent error")) {
 		t.Fatalf("expected generic error to be non-retryable")
+	}
+}
+
+func TestHasDateInRecentRows(t *testing.T) {
+	content := "date,repo\n" +
+		"2026-04-20,1\n" +
+		"2026-04-21,2\n" +
+		"2026-04-22,3\n" +
+		"2026-04-23,4\n"
+
+	path := filepath.Join(t.TempDir(), "pull-stats.csv")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("unable to write test csv: %v", err)
+	}
+
+	found, err := hasDateInRecentRows(path, "2026-04-23", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected to find date in recent rows")
+	}
+
+	found, err = hasDateInRecentRows(path, "2026-04-20", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Fatalf("expected old date to be outside recent row window")
 	}
 }

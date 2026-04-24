@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ const (
 	maxRetryDelay     = 5 * time.Second
 	maxRetryAfter     = 30 * time.Second
 	recentRowsToCheck = 16
+	dateWriteModeEnv  = "DATE_WRITE_MODE"
 )
 
 var (
@@ -32,6 +34,14 @@ var (
 	jitterMu    sync.Mutex
 	sleepFn     = time.Sleep
 	queryOnceFn = queryPullsOnce
+)
+
+type dateWriteMode string
+
+const (
+	dateWriteModeSkip      dateWriteMode = "skip"
+	dateWriteModeAppend    dateWriteMode = "append"
+	dateWriteModeOverwrite dateWriteMode = "overwrite"
 )
 
 type dockerHubRepository struct {
@@ -122,6 +132,120 @@ func hasDateInRecentRows(path, date string, rows int) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func getDateWriteMode() dateWriteMode {
+	mode := dateWriteMode(os.Getenv(dateWriteModeEnv))
+	if mode == "" {
+		return dateWriteModeSkip
+	}
+
+	switch mode {
+	case dateWriteModeSkip, dateWriteModeAppend, dateWriteModeOverwrite:
+		return mode
+	default:
+		log.Printf("Unknown %s=%q, falling back to %q", dateWriteModeEnv, mode, dateWriteModeSkip)
+		return dateWriteModeSkip
+	}
+}
+
+func appendRow(path string, row []string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", path, closeErr.Error())
+		}
+	}()
+
+	w := csv.NewWriter(f)
+	if err := w.Write(row); err != nil {
+		return err
+	}
+	w.Flush()
+
+	return w.Error()
+}
+
+func overwriteDateInRecentRows(path string, row []string, rows int) (bool, error) {
+	if len(row) == 0 {
+		return false, fmt.Errorf("missing row date")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", path, closeErr.Error())
+		}
+	}()
+
+	records, err := csv.NewReader(file).ReadAll()
+	if err != nil {
+		return false, err
+	}
+	if len(records) == 0 {
+		return false, fmt.Errorf("empty csv in %s", path)
+	}
+	if len(records[0]) == 0 || records[0][0] != "date" {
+		return false, fmt.Errorf("invalid csv header in %s", path)
+	}
+	if len(row) != len(records[0]) {
+		return false, fmt.Errorf("row width mismatch: got %d values, want %d", len(row), len(records[0]))
+	}
+
+	start := 1
+	if rows > 0 && len(records)-rows > start {
+		start = len(records) - rows
+	}
+
+	replaceIndex := -1
+	for i := len(records) - 1; i >= start; i-- {
+		if len(records[i]) > 0 && records[i][0] == row[0] {
+			replaceIndex = i
+			break
+		}
+	}
+
+	if replaceIndex == -1 {
+		return false, nil
+	}
+
+	records[replaceIndex] = row
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return false, err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			log.Printf("Unable to remove temp file %s: %s", tmpPath, removeErr.Error())
+		}
+	}()
+
+	w := csv.NewWriter(tmp)
+	if err := w.WriteAll(records); err != nil {
+		_ = tmp.Close()
+		return false, err
+	}
+	if err := w.Error(); err != nil {
+		_ = tmp.Close()
+		return false, err
+	}
+	if err := tmp.Close(); err != nil {
+		return false, err
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func queryPulls(repo string) (string, error) {
@@ -324,14 +448,17 @@ func queryAllPulls(repos []string) ([]string, error) {
 func main() {
 	fileName := "pull-stats.csv"
 	today := time.Now().UTC().Format("2006-01-02")
+	mode := getDateWriteMode()
 
-	exists, err := hasDateInRecentRows(fileName, today, recentRowsToCheck)
-	if err != nil {
-		log.Fatalf("Unable to inspect %s: %s", fileName, err.Error())
-	}
-	if exists {
-		log.Printf("Data point already exists for %s, skipping update", today)
-		return
+	if mode == dateWriteModeSkip {
+		exists, err := hasDateInRecentRows(fileName, today, recentRowsToCheck)
+		if err != nil {
+			log.Fatalf("Unable to inspect %s: %s", fileName, err.Error())
+		}
+		if exists {
+			log.Printf("Data point already exists for %s, skipping update", today)
+			return
+		}
 	}
 
 	repos, err := readRepoNames(fileName)
@@ -347,22 +474,22 @@ func main() {
 	row := []string{today}
 	row = append(row, pulls...)
 
-	f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("Unable to open %s: %s", fileName, err.Error())
-	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			log.Printf("Unable to close %s: %s", fileName, closeErr.Error())
+	switch mode {
+	case dateWriteModeOverwrite:
+		overwritten, err := overwriteDateInRecentRows(fileName, row, recentRowsToCheck)
+		if err != nil {
+			log.Fatalf("Unable to overwrite data in %s: %s", fileName, err.Error())
 		}
-	}()
-
-	w := csv.NewWriter(f)
-	if err := w.Write(row); err != nil {
-		log.Fatalf("Unable to write data: %s", err.Error())
-	}
-	w.Flush()
-	if err := w.Error(); err != nil {
-		log.Fatalf("Unable to write data: %s", err.Error())
+		if overwritten {
+			log.Printf("Overwrote existing data point for %s", today)
+			return
+		}
+		if err := appendRow(fileName, row); err != nil {
+			log.Fatalf("Unable to append data in %s: %s", fileName, err.Error())
+		}
+	default:
+		if err := appendRow(fileName, row); err != nil {
+			log.Fatalf("Unable to append data in %s: %s", fileName, err.Error())
+		}
 	}
 }

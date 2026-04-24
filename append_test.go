@@ -197,6 +197,73 @@ func TestHasDateInRecentRows(t *testing.T) {
 	}
 }
 
+func TestGetDateWriteMode(t *testing.T) {
+	t.Setenv(dateWriteModeEnv, "")
+	if mode := getDateWriteMode(); mode != dateWriteModeSkip {
+		t.Fatalf("expected default mode %q, got %q", dateWriteModeSkip, mode)
+	}
+
+	t.Setenv(dateWriteModeEnv, string(dateWriteModeAppend))
+	if mode := getDateWriteMode(); mode != dateWriteModeAppend {
+		t.Fatalf("expected mode %q, got %q", dateWriteModeAppend, mode)
+	}
+
+	t.Setenv(dateWriteModeEnv, "invalid")
+	if mode := getDateWriteMode(); mode != dateWriteModeSkip {
+		t.Fatalf("expected fallback mode %q, got %q", dateWriteModeSkip, mode)
+	}
+}
+
+func TestOverwriteDateInRecentRows(t *testing.T) {
+	content := "date,repo\n" +
+		"2026-04-20,1\n" +
+		"2026-04-21,2\n" +
+		"2026-04-22,3\n" +
+		"2026-04-23,4\n"
+
+	path := filepath.Join(t.TempDir(), "pull-stats.csv")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("unable to write test csv: %v", err)
+	}
+
+	overwritten, err := overwriteDateInRecentRows(path, []string{"2026-04-23", "99"}, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !overwritten {
+		t.Fatalf("expected overwrite to happen")
+	}
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("unable to read updated file: %v", err)
+	}
+	if !strings.Contains(string(updated), "2026-04-23,99") {
+		t.Fatalf("expected updated row in file, got: %s", string(updated))
+	}
+}
+
+func TestOverwriteDateInRecentRowsOutsideWindow(t *testing.T) {
+	content := "date,repo\n" +
+		"2026-04-20,1\n" +
+		"2026-04-21,2\n" +
+		"2026-04-22,3\n" +
+		"2026-04-23,4\n"
+
+	path := filepath.Join(t.TempDir(), "pull-stats.csv")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("unable to write test csv: %v", err)
+	}
+
+	overwritten, err := overwriteDateInRecentRows(path, []string{"2026-04-20", "99"}, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if overwritten {
+		t.Fatalf("expected no overwrite outside recent window")
+	}
+}
+
 func TestQueryPullsRetriesThenSucceeds(t *testing.T) {
 	attempts := 0
 	sleeps := make([]time.Duration, 0, 2)

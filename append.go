@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -18,13 +19,27 @@ type dockerHubRepository struct {
 	PullCount *int `json:"pull_count"`
 }
 
+type pullJob struct {
+	index int
+	repo  string
+}
+
+type pullResult struct {
+	index int
+	pulls string
+	err   error
+}
+
 func readRepoNames(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	//nolint:errcheck
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", path, closeErr.Error())
+		}
+	}()
 
 	reader := csv.NewReader(file)
 	column, err := reader.Read()
@@ -44,21 +59,19 @@ func queryPulls(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			log.Printf("Unable to close response body for %s: %s", repo, closeErr.Error())
+		}
+	}()
 
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-		if closeErr := res.Body.Close(); closeErr != nil {
-			return "", closeErr
-		}
-
 		return "", fmt.Errorf("unexpected status %d for %s: %s", res.StatusCode, repo, string(body))
 	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return "", err
-	}
-	if err := res.Body.Close(); err != nil {
 		return "", err
 	}
 
@@ -73,6 +86,64 @@ func queryPulls(repo string) (string, error) {
 	return strconv.Itoa(*repository.PullCount), nil
 }
 
+func queryAllPulls(repos []string) ([]string, error) {
+	workers := 8
+	if len(repos) < workers {
+		workers = len(repos)
+	}
+	if workers == 0 {
+		return nil, fmt.Errorf("no repositories configured")
+	}
+
+	jobs := make(chan pullJob, len(repos))
+	results := make(chan pullResult, len(repos))
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				pulls, err := queryPulls(job.repo)
+				if err != nil {
+					results <- pullResult{index: job.index, err: fmt.Errorf("%s: %w", job.repo, err)}
+					continue
+				}
+
+				results <- pullResult{index: job.index, pulls: pulls}
+			}
+		}()
+	}
+
+	for i, repo := range repos {
+		jobs <- pullJob{index: i, repo: repo}
+	}
+	close(jobs)
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	pulls := make([]string, len(repos))
+	var firstErr error
+	for result := range results {
+		if result.err != nil {
+			if firstErr == nil {
+				firstErr = result.err
+			}
+			continue
+		}
+		pulls[result.index] = result.pulls
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	return pulls, nil
+}
+
 func main() {
 	fileName := "pull-stats.csv"
 
@@ -81,21 +152,23 @@ func main() {
 		log.Fatalf("Unable to read %s: %s", fileName, err.Error())
 	}
 
-	row := []string{time.Now().Format("2006-01-02")}
-	for _, r := range repos {
-		pulls, err := queryPulls(r)
-		if err != nil {
-			log.Fatalf("Unable to query %s: %s", r, err.Error())
-		}
-		row = append(row, pulls)
+	pulls, err := queryAllPulls(repos)
+	if err != nil {
+		log.Fatalf("Unable to query repositories: %s", err.Error())
 	}
+
+	row := []string{time.Now().UTC().Format("2006-01-02")}
+	row = append(row, pulls...)
 
 	f, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatalf("Unable to open %s: %s", fileName, err.Error())
 	}
-	//nolint:errcheck
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %s", fileName, closeErr.Error())
+		}
+	}()
 
 	w := csv.NewWriter(f)
 	if err := w.Write(row); err != nil {
